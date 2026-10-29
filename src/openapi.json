@@ -1,0 +1,2973 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Postlater",
+		"version": "0.1.0",
+		"license": {
+			"name": "MIT",
+			"identifier": "MIT"
+		},
+		"description": "A self-hosted message server that speaks the QStash API. Point `@upstash/qstash`, `@upstash/workflow`, or any app built on them, at it by setting `QSTASH_URL`, `QSTASH_TOKEN` and the two signing keys.\n\nEvery `/v2` request needs `Authorization: Bearer <QSTASH_TOKEN>`. Errors are JSON: `{\"error\": \"…\"}`."
+	},
+	"servers": [
+		{
+			"url": "/"
+		}
+	],
+	"security": [
+		{
+			"token": []
+		}
+	],
+	"tags": [
+		{
+			"name": "Messages"
+		},
+		{
+			"name": "Queues"
+		},
+		{
+			"name": "Schedules"
+		},
+		{
+			"name": "URL groups"
+		},
+		{
+			"name": "Dead-letter queue"
+		},
+		{
+			"name": "Logs"
+		},
+		{
+			"name": "Signing keys"
+		},
+		{
+			"name": "Flow control"
+		},
+		{
+			"name": "Workflows"
+		},
+		{
+			"name": "Server"
+		}
+	],
+	"paths": {
+		"/v2/publish/{destination}": {
+			"post": {
+				"summary": "Publish a message",
+				"tags": ["Messages"],
+				"responses": {
+					"201": {
+						"description": "The message, or one per endpoint of a URL group.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"oneOf": [
+										{
+											"$ref": "#/components/schemas/Published"
+										},
+										{
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/Published"
+											},
+											"description": "For a URL group: one message per endpoint."
+										}
+									]
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "Headers that start with `Upstash-Forward-` reach the destination without the prefix: `Upstash-Forward-Authorization: Bearer …` arrives as `Authorization: Bearer …`. `Content-Type` and `Upstash-Workflow-*` headers are passed on as they are; nothing else is.\n\nHeaders that start with `Upstash-Callback-` and `Upstash-Failure-Callback-` set up the callbacks the same way, as if they were published: `Upstash-Callback-Retries`, `Upstash-Callback-Forward-X-Trace` and so on.\n\nEach delivery carries `Upstash-Signature`, a JWT signed with the current signing key that `Receiver.verify` in `@upstash/qstash` checks, plus `Upstash-Message-Id` and `Upstash-Retried`.",
+				"parameters": [
+					{
+						"name": "destination",
+						"in": "path",
+						"required": true,
+						"description": "A URL, written out as it is, slashes and query string included: `/v2/publish/https://example.com/hooks/order?id=7`. Or the name of a URL group, to publish to each of its endpoints.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Method",
+						"in": "header",
+						"description": "The method of the delivery. Default `POST`.",
+						"schema": {
+							"type": "string",
+							"enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"]
+						}
+					},
+					{
+						"name": "Upstash-Delay",
+						"in": "header",
+						"description": "Wait this long before the first attempt: `10s`, `5m`, `1h30m`, `2d`.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Not-Before",
+						"in": "header",
+						"description": "Do not deliver before this time, in Unix seconds.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "Upstash-Retries",
+						"in": "header",
+						"description": "Attempts after the first one fails. Default 3.",
+						"schema": {
+							"type": "integer",
+							"minimum": 0
+						}
+					},
+					{
+						"name": "Upstash-Retry-Delay",
+						"in": "header",
+						"description": "Milliseconds to wait before each retry, as arithmetic on `retried`: `pow(2, retried) * 1000`. Functions: pow, sqrt, abs, exp, floor, ceil, round, min, max. Default: e^(2.5 × retried) seconds, at most a day.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Timeout",
+						"in": "header",
+						"description": "How long one attempt may take: `30s`, `5m`. Default 5 minutes.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Callback",
+						"in": "header",
+						"description": "A URL to publish the outcome of each attempt to.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Failure-Callback",
+						"in": "header",
+						"description": "A URL to publish to once all attempts have failed, with the id of the DLQ entry.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Deduplication-Id",
+						"in": "header",
+						"description": "Publishing again with the same id, to the same destination, within the deduplication window (10 minutes by default) returns the first message instead of creating one.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Content-Based-Deduplication",
+						"in": "header",
+						"description": "`true` deduplicates by destination, method, forwarded headers and body.",
+						"schema": {
+							"type": "string",
+							"enum": ["true", "false"]
+						}
+					},
+					{
+						"name": "Upstash-Flow-Control-Key",
+						"in": "header",
+						"description": "Messages sharing a key share its limits.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Flow-Control-Value",
+						"in": "header",
+						"description": "The limits for the key: `parallelism=2, rate=10, period=1m`.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Label",
+						"in": "header",
+						"description": "Labels to find the message by in logs and the DLQ, separated by commas.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"required": false,
+					"description": "Delivered as it is.",
+					"content": {
+						"*/*": {
+							"schema": {
+								"type": "string",
+								"contentEncoding": "binary"
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v2/enqueue/{queueName}/{destination}": {
+			"post": {
+				"summary": "Publish a message to a queue",
+				"tags": ["Queues"],
+				"responses": {
+					"201": {
+						"description": "The message.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"oneOf": [
+										{
+											"$ref": "#/components/schemas/Published"
+										},
+										{
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/Published"
+											},
+											"description": "For a URL group: one message per endpoint."
+										}
+									]
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "Like publishing, but the message waits its turn in the queue, which delivers in order, at most `parallelism` at a time. A queue that does not exist is created with a parallelism of 1.",
+				"parameters": [
+					{
+						"name": "queueName",
+						"in": "path",
+						"required": true,
+						"description": "The queue.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "destination",
+						"in": "path",
+						"required": true,
+						"description": "A URL, written out as it is, slashes and query string included: `/v2/publish/https://example.com/hooks/order?id=7`. Or the name of a URL group, to publish to each of its endpoints.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Method",
+						"in": "header",
+						"description": "The method of the delivery. Default `POST`.",
+						"schema": {
+							"type": "string",
+							"enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"]
+						}
+					},
+					{
+						"name": "Upstash-Delay",
+						"in": "header",
+						"description": "Wait this long before the first attempt: `10s`, `5m`, `1h30m`, `2d`.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Not-Before",
+						"in": "header",
+						"description": "Do not deliver before this time, in Unix seconds.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "Upstash-Retries",
+						"in": "header",
+						"description": "Attempts after the first one fails. Default 3.",
+						"schema": {
+							"type": "integer",
+							"minimum": 0
+						}
+					},
+					{
+						"name": "Upstash-Retry-Delay",
+						"in": "header",
+						"description": "Milliseconds to wait before each retry, as arithmetic on `retried`: `pow(2, retried) * 1000`. Functions: pow, sqrt, abs, exp, floor, ceil, round, min, max. Default: e^(2.5 × retried) seconds, at most a day.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Timeout",
+						"in": "header",
+						"description": "How long one attempt may take: `30s`, `5m`. Default 5 minutes.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Callback",
+						"in": "header",
+						"description": "A URL to publish the outcome of each attempt to.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Failure-Callback",
+						"in": "header",
+						"description": "A URL to publish to once all attempts have failed, with the id of the DLQ entry.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Deduplication-Id",
+						"in": "header",
+						"description": "Publishing again with the same id, to the same destination, within the deduplication window (10 minutes by default) returns the first message instead of creating one.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Content-Based-Deduplication",
+						"in": "header",
+						"description": "`true` deduplicates by destination, method, forwarded headers and body.",
+						"schema": {
+							"type": "string",
+							"enum": ["true", "false"]
+						}
+					},
+					{
+						"name": "Upstash-Flow-Control-Key",
+						"in": "header",
+						"description": "Messages sharing a key share its limits.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Flow-Control-Value",
+						"in": "header",
+						"description": "The limits for the key: `parallelism=2, rate=10, period=1m`.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Label",
+						"in": "header",
+						"description": "Labels to find the message by in logs and the DLQ, separated by commas.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"required": false,
+					"content": {
+						"*/*": {
+							"schema": {
+								"type": "string",
+								"contentEncoding": "binary"
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v2/batch": {
+			"post": {
+				"summary": "Publish several messages",
+				"tags": ["Messages"],
+				"responses": {
+					"201": {
+						"description": "One result per message, in order.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"oneOf": [
+											{
+												"$ref": "#/components/schemas/Published"
+											},
+											{
+												"type": "array",
+												"items": {
+													"$ref": "#/components/schemas/Published"
+												},
+												"description": "For a URL group: one message per endpoint."
+											}
+										]
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "All or nothing: if one message is not valid, none is published.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "array",
+								"minItems": 1,
+								"items": {
+									"type": "object",
+									"properties": {
+										"destination": {
+											"type": "string",
+											"description": "A URL or the name of a URL group."
+										},
+										"headers": {
+											"type": "object",
+											"additionalProperties": {
+												"type": "string"
+											},
+											"description": "The same headers as for publishing."
+										},
+										"body": {
+											"type": "string"
+										},
+										"queue": {
+											"type": "string",
+											"description": "A queue to publish to."
+										}
+									},
+									"required": ["destination"]
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v2/messages/{messageId}": {
+			"get": {
+				"summary": "Get a message",
+				"tags": ["Messages"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Message"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "Only while it waits or is being delivered; afterwards, look for it in the logs or the DLQ.",
+				"parameters": [
+					{
+						"name": "messageId",
+						"in": "path",
+						"required": true,
+						"description": "The message.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			},
+			"delete": {
+				"summary": "Cancel a message",
+				"tags": ["Messages"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"cancelled": {
+											"type": "integer"
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "A message that is being delivered right now cannot be cancelled.",
+				"parameters": [
+					{
+						"name": "messageId",
+						"in": "path",
+						"required": true,
+						"description": "The message.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/messages": {
+			"delete": {
+				"summary": "Cancel messages",
+				"tags": ["Messages"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"cancelled": {
+											"type": "integer"
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "By id, or every waiting message that matches the filters.",
+				"parameters": [
+					{
+						"name": "messageIds",
+						"in": "query",
+						"description": "These messages.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "count",
+						"in": "query",
+						"description": "At most this many.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "url",
+						"in": "query",
+						"description": "Destination URL.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "topicName",
+						"in": "query",
+						"description": "URL group.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "scheduleId",
+						"in": "query",
+						"description": "Schedule.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "queueName",
+						"in": "query",
+						"description": "Queue.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "callerIp",
+						"in": "query",
+						"description": "The address that published it.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "label",
+						"in": "query",
+						"description": "Label.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "flowControlKey",
+						"in": "query",
+						"description": "Flow control key.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "fromDate",
+						"in": "query",
+						"description": "From this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "toDate",
+						"in": "query",
+						"description": "Until this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					}
+				]
+			}
+		},
+		"/v2/messages/{messageId}/retry": {
+			"post": {
+				"summary": "Deliver a waiting message now",
+				"tags": ["Messages"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "Skips what is left of its delay or retry wait.",
+				"parameters": [
+					{
+						"name": "messageId",
+						"in": "path",
+						"required": true,
+						"description": "The message.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/events": {
+			"get": {
+				"summary": "List logs",
+				"tags": ["Logs"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"cursor": {
+											"type": "string",
+											"description": "Pass it back for the next page; absent on the last page."
+										},
+										"events": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/Event"
+											}
+										}
+									},
+									"required": ["events"]
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "What happened to each message, newest first: `CREATED`, `ACTIVE` for each attempt, then `RETRY`, `DELIVERED`, `FAILED` or `CANCELED`.",
+				"parameters": [
+					{
+						"name": "cursor",
+						"in": "query",
+						"description": "From a previous page.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "count",
+						"in": "query",
+						"description": "At most this many; default 100, at most 1000.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "messageId",
+						"in": "query",
+						"description": "Message.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "state",
+						"in": "query",
+						"description": "State.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string",
+								"enum": ["CREATED", "ACTIVE", "RETRY", "DELIVERED", "FAILED", "CANCELED"]
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "url",
+						"in": "query",
+						"description": "Destination URL.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "topicName",
+						"in": "query",
+						"description": "URL group.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "scheduleId",
+						"in": "query",
+						"description": "Schedule.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "queueName",
+						"in": "query",
+						"description": "Queue.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "callerIp",
+						"in": "query",
+						"description": "The address that published it.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "label",
+						"in": "query",
+						"description": "Label.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "flowControlKey",
+						"in": "query",
+						"description": "Flow control key.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "fromDate",
+						"in": "query",
+						"description": "From this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "toDate",
+						"in": "query",
+						"description": "Until this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					}
+				]
+			}
+		},
+		"/v2/dlq": {
+			"get": {
+				"summary": "List the dead-letter queue",
+				"tags": ["Dead-letter queue"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"messages": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/DlqMessage"
+											}
+										},
+										"cursor": {
+											"type": "string"
+										}
+									},
+									"required": ["messages"]
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "Messages whose every attempt failed, newest first, with the last response.",
+				"parameters": [
+					{
+						"name": "cursor",
+						"in": "query",
+						"description": "From a previous page.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "count",
+						"in": "query",
+						"description": "At most this many; default 100.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "dlqIds",
+						"in": "query",
+						"description": "These entries.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "messageId",
+						"in": "query",
+						"description": "Message.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "responseStatus",
+						"in": "query",
+						"description": "The last response status.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "integer"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "url",
+						"in": "query",
+						"description": "Destination URL.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "topicName",
+						"in": "query",
+						"description": "URL group.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "scheduleId",
+						"in": "query",
+						"description": "Schedule.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "queueName",
+						"in": "query",
+						"description": "Queue.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "callerIp",
+						"in": "query",
+						"description": "The address that published it.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "label",
+						"in": "query",
+						"description": "Label.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "flowControlKey",
+						"in": "query",
+						"description": "Flow control key.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "fromDate",
+						"in": "query",
+						"description": "From this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "toDate",
+						"in": "query",
+						"description": "Until this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					}
+				]
+			},
+			"delete": {
+				"summary": "Delete entries from the dead-letter queue",
+				"tags": ["Dead-letter queue"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"deleted": {
+											"type": "integer"
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"parameters": [
+					{
+						"name": "count",
+						"in": "query",
+						"description": "At most this many; default 100.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "dlqIds",
+						"in": "query",
+						"description": "These entries.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "messageId",
+						"in": "query",
+						"description": "Message.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "responseStatus",
+						"in": "query",
+						"description": "The last response status.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "integer"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "url",
+						"in": "query",
+						"description": "Destination URL.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "topicName",
+						"in": "query",
+						"description": "URL group.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "scheduleId",
+						"in": "query",
+						"description": "Schedule.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "queueName",
+						"in": "query",
+						"description": "Queue.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "callerIp",
+						"in": "query",
+						"description": "The address that published it.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "label",
+						"in": "query",
+						"description": "Label.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "flowControlKey",
+						"in": "query",
+						"description": "Flow control key.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "fromDate",
+						"in": "query",
+						"description": "From this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "toDate",
+						"in": "query",
+						"description": "Until this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					}
+				]
+			}
+		},
+		"/v2/dlq/retry": {
+			"post": {
+				"summary": "Publish dead-letter entries again",
+				"tags": ["Dead-letter queue"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"responses": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/Published"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "Each becomes a new message with the same destination, body and settings, and leaves the DLQ.",
+				"parameters": [
+					{
+						"name": "count",
+						"in": "query",
+						"description": "At most this many; default 100.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "dlqIds",
+						"in": "query",
+						"description": "These entries.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "messageId",
+						"in": "query",
+						"description": "Message.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "responseStatus",
+						"in": "query",
+						"description": "The last response status.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "integer"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "url",
+						"in": "query",
+						"description": "Destination URL.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "topicName",
+						"in": "query",
+						"description": "URL group.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "scheduleId",
+						"in": "query",
+						"description": "Schedule.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "queueName",
+						"in": "query",
+						"description": "Queue.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "callerIp",
+						"in": "query",
+						"description": "The address that published it.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "label",
+						"in": "query",
+						"description": "Label.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "flowControlKey",
+						"in": "query",
+						"description": "Flow control key.",
+						"schema": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"style": "form",
+						"explode": true
+					},
+					{
+						"name": "fromDate",
+						"in": "query",
+						"description": "From this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "toDate",
+						"in": "query",
+						"description": "Until this time, in Unix milliseconds.",
+						"schema": {
+							"type": "integer"
+						}
+					}
+				]
+			}
+		},
+		"/v2/dlq/retry/{dlqId}": {
+			"post": {
+				"summary": "Publish one dead-letter entry again",
+				"tags": ["Dead-letter queue"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"responses": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/Published"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"parameters": [
+					{
+						"name": "dlqId",
+						"in": "path",
+						"required": true,
+						"description": "The DLQ entry.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/dlq/{dlqId}": {
+			"get": {
+				"summary": "Get a dead-letter entry",
+				"tags": ["Dead-letter queue"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/DlqMessage"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "dlqId",
+						"in": "path",
+						"required": true,
+						"description": "The DLQ entry.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			},
+			"delete": {
+				"summary": "Delete a dead-letter entry",
+				"tags": ["Dead-letter queue"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"deleted": {
+											"type": "integer"
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "dlqId",
+						"in": "path",
+						"required": true,
+						"description": "The DLQ entry.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/queues": {
+			"post": {
+				"summary": "Create or change a queue",
+				"tags": ["Queues"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"queueName": {
+										"type": "string"
+									},
+									"parallelism": {
+										"type": "integer",
+										"minimum": 1,
+										"default": 1
+									},
+									"paused": {
+										"type": "boolean",
+										"default": false
+									}
+								},
+								"required": ["queueName"]
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"summary": "List queues",
+				"tags": ["Queues"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/Queue"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				}
+			}
+		},
+		"/v2/queues/{queueName}": {
+			"get": {
+				"summary": "Get a queue",
+				"tags": ["Queues"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Queue"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "queueName",
+						"in": "path",
+						"required": true,
+						"description": "The queue.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			},
+			"delete": {
+				"summary": "Delete a queue",
+				"tags": ["Queues"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "Its waiting messages are cancelled; one being delivered finishes.",
+				"parameters": [
+					{
+						"name": "queueName",
+						"in": "path",
+						"required": true,
+						"description": "The queue.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/queues/{queueName}/pause": {
+			"post": {
+				"summary": "Pause a queue",
+				"tags": ["Queues"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "Nothing more starts until it is resumed; messages can still be added.",
+				"parameters": [
+					{
+						"name": "queueName",
+						"in": "path",
+						"required": true,
+						"description": "The queue.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/queues/{queueName}/resume": {
+			"post": {
+				"summary": "Resume a queue",
+				"tags": ["Queues"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "queueName",
+						"in": "path",
+						"required": true,
+						"description": "The queue.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/schedules": {
+			"get": {
+				"summary": "List schedules",
+				"tags": ["Schedules"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/Schedule"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				}
+			}
+		},
+		"/v2/schedules/{schedule}": {
+			"post": {
+				"summary": "Create or replace a schedule",
+				"tags": ["Schedules"],
+				"responses": {
+					"201": {
+						"description": "The schedule.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"scheduleId": {
+											"type": "string"
+										}
+									},
+									"required": ["scheduleId"]
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "Publishes a message to the destination at each time of its cron, with the publish headers given here. With `Upstash-Schedule-Id`, an existing schedule is replaced.",
+				"parameters": [
+					{
+						"name": "schedule",
+						"in": "path",
+						"required": true,
+						"description": "For `POST`: the destination, a URL or URL group, as for publishing. Otherwise: the schedule id.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Cron",
+						"in": "header",
+						"description": "Required. Five fields, in UTC: `*/5 * * * *`. Prefix `CRON_TZ=Europe/Berlin ` for another time zone.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Schedule-Id",
+						"in": "header",
+						"description": "Choose the id, or replace the schedule that has it.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Queue-Name",
+						"in": "header",
+						"description": "Publish each run to this queue.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Method",
+						"in": "header",
+						"description": "The method of the delivery. Default `POST`.",
+						"schema": {
+							"type": "string",
+							"enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"]
+						}
+					},
+					{
+						"name": "Upstash-Delay",
+						"in": "header",
+						"description": "Wait this long before the first attempt: `10s`, `5m`, `1h30m`, `2d`.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Not-Before",
+						"in": "header",
+						"description": "Do not deliver before this time, in Unix seconds.",
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "Upstash-Retries",
+						"in": "header",
+						"description": "Attempts after the first one fails. Default 3.",
+						"schema": {
+							"type": "integer",
+							"minimum": 0
+						}
+					},
+					{
+						"name": "Upstash-Retry-Delay",
+						"in": "header",
+						"description": "Milliseconds to wait before each retry, as arithmetic on `retried`: `pow(2, retried) * 1000`. Functions: pow, sqrt, abs, exp, floor, ceil, round, min, max. Default: e^(2.5 × retried) seconds, at most a day.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Timeout",
+						"in": "header",
+						"description": "How long one attempt may take: `30s`, `5m`. Default 5 minutes.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Callback",
+						"in": "header",
+						"description": "A URL to publish the outcome of each attempt to.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Failure-Callback",
+						"in": "header",
+						"description": "A URL to publish to once all attempts have failed, with the id of the DLQ entry.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Deduplication-Id",
+						"in": "header",
+						"description": "Publishing again with the same id, to the same destination, within the deduplication window (10 minutes by default) returns the first message instead of creating one.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Content-Based-Deduplication",
+						"in": "header",
+						"description": "`true` deduplicates by destination, method, forwarded headers and body.",
+						"schema": {
+							"type": "string",
+							"enum": ["true", "false"]
+						}
+					},
+					{
+						"name": "Upstash-Flow-Control-Key",
+						"in": "header",
+						"description": "Messages sharing a key share its limits.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Flow-Control-Value",
+						"in": "header",
+						"description": "The limits for the key: `parallelism=2, rate=10, period=1m`.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "Upstash-Label",
+						"in": "header",
+						"description": "Labels to find the message by in logs and the DLQ, separated by commas.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"required": false,
+					"content": {
+						"*/*": {
+							"schema": {
+								"type": "string",
+								"contentEncoding": "binary"
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"summary": "Get a schedule",
+				"tags": ["Schedules"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Schedule"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "schedule",
+						"in": "path",
+						"required": true,
+						"description": "For `POST`: the destination, a URL or URL group, as for publishing. Otherwise: the schedule id.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			},
+			"delete": {
+				"summary": "Delete a schedule",
+				"tags": ["Schedules"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "schedule",
+						"in": "path",
+						"required": true,
+						"description": "For `POST`: the destination, a URL or URL group, as for publishing. Otherwise: the schedule id.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/schedules/{scheduleId}/pause": {
+			"patch": {
+				"summary": "Pause a schedule",
+				"tags": ["Schedules"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "scheduleId",
+						"in": "path",
+						"required": true,
+						"description": "The schedule.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/schedules/{scheduleId}/resume": {
+			"patch": {
+				"summary": "Resume a schedule",
+				"tags": ["Schedules"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "It next runs at its next time from now; times missed while paused are skipped.",
+				"parameters": [
+					{
+						"name": "scheduleId",
+						"in": "path",
+						"required": true,
+						"description": "The schedule.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/topics": {
+			"get": {
+				"summary": "List URL groups",
+				"tags": ["URL groups"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/UrlGroup"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				}
+			}
+		},
+		"/v2/topics/{urlGroup}": {
+			"get": {
+				"summary": "Get a URL group",
+				"tags": ["URL groups"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/UrlGroup"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "urlGroup",
+						"in": "path",
+						"required": true,
+						"description": "The URL group.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			},
+			"delete": {
+				"summary": "Delete a URL group",
+				"tags": ["URL groups"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"parameters": [
+					{
+						"name": "urlGroup",
+						"in": "path",
+						"required": true,
+						"description": "The URL group.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/topics/{urlGroup}/endpoints": {
+			"post": {
+				"summary": "Add endpoints to a URL group",
+				"tags": ["URL groups"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "Creates the group if needed. An endpoint already in it is given the new name.",
+				"parameters": [
+					{
+						"name": "urlGroup",
+						"in": "path",
+						"required": true,
+						"description": "The URL group.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"endpoints": {
+										"type": "array",
+										"minItems": 1,
+										"items": {
+											"$ref": "#/components/schemas/Endpoint"
+										}
+									}
+								},
+								"required": ["endpoints"]
+							}
+						}
+					}
+				}
+			},
+			"delete": {
+				"summary": "Remove endpoints from a URL group",
+				"tags": ["URL groups"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "By URL, or by name.",
+				"parameters": [
+					{
+						"name": "urlGroup",
+						"in": "path",
+						"required": true,
+						"description": "The URL group.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"endpoints": {
+										"type": "array",
+										"minItems": 1,
+										"items": {
+											"$ref": "#/components/schemas/Endpoint"
+										}
+									}
+								},
+								"required": ["endpoints"]
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v2/keys": {
+			"get": {
+				"summary": "Get the signing keys",
+				"tags": ["Signing keys"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"current": {
+											"type": "string"
+										},
+										"next": {
+											"type": "string"
+										}
+									},
+									"required": ["current", "next"]
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "Give both to your receivers, as QSTASH_CURRENT_SIGNING_KEY and QSTASH_NEXT_SIGNING_KEY."
+			}
+		},
+		"/v2/keys/rotate": {
+			"post": {
+				"summary": "Rotate the signing keys",
+				"tags": ["Signing keys"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"current": {
+											"type": "string"
+										},
+										"next": {
+											"type": "string"
+										}
+									},
+									"required": ["current", "next"]
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "The next key becomes current and a new next key is made. Receivers that hold both keys keep verifying until they are updated. Not available when the keys are set in the environment."
+			}
+		},
+		"/v2/flowControl": {
+			"get": {
+				"summary": "List flow control keys",
+				"tags": ["Flow control"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/FlowControl"
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "Keys with messages waiting or under way."
+			}
+		},
+		"/v2/flowControl/{flowControlKey}": {
+			"get": {
+				"summary": "Get a flow control key",
+				"tags": ["Flow control"],
+				"responses": {
+					"200": {
+						"description": "Done.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FlowControl"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"parameters": [
+					{
+						"name": "flowControlKey",
+						"in": "path",
+						"required": true,
+						"description": "The key.",
+						"schema": {
+							"type": "string"
+						}
+					}
+				]
+			}
+		},
+		"/v2/workflows/runs/{workflowRunId}": {
+			"delete": {
+				"summary": "End a workflow run",
+				"tags": ["Workflows"],
+				"responses": {
+					"200": {
+						"description": "Done; the response has no body."
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					}
+				},
+				"description": "Called by `@upstash/workflow` when a run ends. Forgets the run's steps; with `cancel=true`, also cancels its waiting messages.",
+				"parameters": [
+					{
+						"name": "workflowRunId",
+						"in": "path",
+						"required": true,
+						"description": "The run.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "cancel",
+						"in": "query",
+						"description": "Cancel what the run still has waiting.",
+						"schema": {
+							"type": "string",
+							"enum": ["true", "false"]
+						}
+					}
+				]
+			}
+		},
+		"/health": {
+			"get": {
+				"summary": "Check health",
+				"tags": ["Server"],
+				"responses": {
+					"200": {
+						"description": "The server and its database are up.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"ok": {
+											"type": "boolean"
+										}
+									}
+								}
+							}
+						}
+					}
+				},
+				"security": []
+			}
+		},
+		"/metrics": {
+			"get": {
+				"summary": "Get metrics",
+				"tags": ["Server"],
+				"responses": {
+					"200": {
+						"description": "Prometheus metrics.",
+						"content": {
+							"text/plain": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					}
+				},
+				"description": "Messages by state, DLQ size and schedule count. Needs the token unless `PUBLIC_METRICS=true`."
+			}
+		},
+		"/openapi.json": {
+			"get": {
+				"summary": "Get this description",
+				"tags": ["Server"],
+				"responses": {
+					"200": {
+						"description": "This document.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object"
+								}
+							}
+						}
+					}
+				},
+				"security": []
+			}
+		}
+	},
+	"components": {
+		"securitySchemes": {
+			"token": {
+				"type": "http",
+				"scheme": "bearer",
+				"description": "One of the tokens in QSTASH_TOKEN."
+			}
+		},
+		"responses": {
+			"BadRequest": {
+				"description": "The request is not valid.",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			},
+			"Unauthorized": {
+				"description": "No token, or not one of the server's.",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			},
+			"NotFound": {
+				"description": "No such thing.",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/Error"
+						}
+					}
+				}
+			}
+		},
+		"schemas": {
+			"Error": {
+				"type": "object",
+				"properties": {
+					"error": {
+						"type": "string"
+					}
+				},
+				"required": ["error"]
+			},
+			"Published": {
+				"type": "object",
+				"properties": {
+					"messageId": {
+						"type": "string",
+						"pattern": "^msg_"
+					},
+					"url": {
+						"type": "string"
+					},
+					"deduplicated": {
+						"type": "boolean",
+						"description": "True when an earlier message was returned instead."
+					}
+				},
+				"required": ["messageId", "url"]
+			},
+			"Headers": {
+				"type": "object",
+				"additionalProperties": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"Message": {
+				"type": "object",
+				"properties": {
+					"messageId": {
+						"type": "string"
+					},
+					"url": {
+						"type": "string"
+					},
+					"topicName": {
+						"type": "string"
+					},
+					"endpointName": {
+						"type": "string"
+					},
+					"method": {
+						"type": "string"
+					},
+					"header": {
+						"$ref": "#/components/schemas/Headers"
+					},
+					"body": {
+						"type": "string",
+						"description": "When the body is text."
+					},
+					"bodyBase64": {
+						"type": "string",
+						"description": "When it is not."
+					},
+					"maxRetries": {
+						"type": "integer"
+					},
+					"retryDelayExpression": {
+						"type": "string"
+					},
+					"notBefore": {
+						"type": "integer",
+						"description": "Unix milliseconds."
+					},
+					"createdAt": {
+						"type": "integer",
+						"description": "Unix milliseconds."
+					},
+					"callback": {
+						"type": "string"
+					},
+					"failureCallback": {
+						"type": "string"
+					},
+					"queueName": {
+						"type": "string"
+					},
+					"scheduleId": {
+						"type": "string"
+					},
+					"callerIp": {
+						"type": "string"
+					},
+					"flowControlKey": {
+						"type": "string"
+					},
+					"parallelism": {
+						"type": "integer"
+					},
+					"rate": {
+						"type": "integer"
+					},
+					"period": {
+						"type": "integer",
+						"description": "Seconds."
+					},
+					"label": {
+						"type": "string"
+					},
+					"labels": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				},
+				"required": ["messageId", "url", "method", "createdAt"]
+			},
+			"DlqMessage": {
+				"allOf": [
+					{
+						"$ref": "#/components/schemas/Message"
+					},
+					{
+						"type": "object",
+						"properties": {
+							"dlqId": {
+								"type": "string"
+							},
+							"responseStatus": {
+								"type": "integer"
+							},
+							"responseHeader": {
+								"$ref": "#/components/schemas/Headers"
+							},
+							"responseBody": {
+								"type": "string"
+							},
+							"responseBodyBase64": {
+								"type": "string"
+							}
+						},
+						"required": ["dlqId"]
+					}
+				]
+			},
+			"Event": {
+				"type": "object",
+				"properties": {
+					"time": {
+						"type": "integer"
+					},
+					"state": {
+						"type": "string",
+						"enum": ["CREATED", "ACTIVE", "RETRY", "DELIVERED", "FAILED", "CANCELED"]
+					},
+					"messageId": {
+						"type": "string"
+					},
+					"url": {
+						"type": "string"
+					},
+					"error": {
+						"type": "string"
+					},
+					"nextDeliveryTime": {
+						"type": "integer"
+					},
+					"responseStatus": {
+						"type": "integer"
+					},
+					"topicName": {
+						"type": "string"
+					},
+					"endpointName": {
+						"type": "string"
+					},
+					"queueName": {
+						"type": "string"
+					},
+					"scheduleId": {
+						"type": "string"
+					},
+					"callerIp": {
+						"type": "string"
+					},
+					"flowControlKey": {
+						"type": "string"
+					},
+					"header": {
+						"$ref": "#/components/schemas/Headers"
+					},
+					"body": {
+						"type": "string",
+						"description": "In base64, on CREATED."
+					},
+					"label": {
+						"type": "string"
+					},
+					"labels": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				},
+				"required": ["time", "state", "messageId", "url"]
+			},
+			"Queue": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"parallelism": {
+						"type": "integer"
+					},
+					"lag": {
+						"type": "integer",
+						"description": "Messages waiting or under way."
+					},
+					"paused": {
+						"type": "boolean"
+					},
+					"createdAt": {
+						"type": "integer"
+					},
+					"updatedAt": {
+						"type": "integer"
+					}
+				},
+				"required": ["name", "parallelism", "lag", "paused", "createdAt", "updatedAt"]
+			},
+			"Schedule": {
+				"type": "object",
+				"properties": {
+					"scheduleId": {
+						"type": "string"
+					},
+					"cron": {
+						"type": "string"
+					},
+					"destination": {
+						"type": "string"
+					},
+					"method": {
+						"type": "string"
+					},
+					"header": {
+						"$ref": "#/components/schemas/Headers"
+					},
+					"body": {
+						"type": "string"
+					},
+					"bodyBase64": {
+						"type": "string"
+					},
+					"retries": {
+						"type": "integer"
+					},
+					"delay": {
+						"type": "integer",
+						"description": "Seconds."
+					},
+					"callback": {
+						"type": "string"
+					},
+					"failureCallback": {
+						"type": "string"
+					},
+					"callerIp": {
+						"type": "string"
+					},
+					"isPaused": {
+						"type": "boolean"
+					},
+					"queueName": {
+						"type": "string"
+					},
+					"flowControlKey": {
+						"type": "string"
+					},
+					"parallelism": {
+						"type": "integer"
+					},
+					"rate": {
+						"type": "integer"
+					},
+					"period": {
+						"type": "integer"
+					},
+					"retryDelayExpression": {
+						"type": "string"
+					},
+					"label": {
+						"type": "string"
+					},
+					"labels": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					},
+					"createdAt": {
+						"type": "integer"
+					},
+					"lastScheduleTime": {
+						"type": "integer"
+					},
+					"nextScheduleTime": {
+						"type": "integer"
+					}
+				},
+				"required": ["scheduleId", "cron", "destination", "method", "retries", "isPaused", "createdAt"]
+			},
+			"Endpoint": {
+				"type": "object",
+				"properties": {
+					"url": {
+						"type": "string"
+					},
+					"name": {
+						"type": "string"
+					}
+				}
+			},
+			"UrlGroup": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"endpoints": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/Endpoint"
+						}
+					},
+					"createdAt": {
+						"type": "integer"
+					},
+					"updatedAt": {
+						"type": "integer"
+					}
+				},
+				"required": ["name", "endpoints", "createdAt", "updatedAt"]
+			},
+			"FlowControl": {
+				"type": "object",
+				"properties": {
+					"flowControlKey": {
+						"type": "string"
+					},
+					"waitListSize": {
+						"type": "integer"
+					},
+					"activeCount": {
+						"type": "integer"
+					}
+				},
+				"required": ["flowControlKey", "waitListSize", "activeCount"]
+			}
+		}
+	}
+}

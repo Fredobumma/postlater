@@ -1,0 +1,76 @@
+{
+	"name": "postlater",
+	"version": "0.1.0",
+	"description": "A self-hosted message server that speaks the QStash API: HTTP messages with retries, delays, queues, cron schedules, callbacks and a dead-letter queue, stored in your own Postgres.",
+	"keywords": [
+		"qstash",
+		"upstash",
+		"self-hosted",
+		"message-queue",
+		"webhooks",
+		"cron",
+		"background-jobs",
+		"postgres"
+	],
+	"license": "MIT",
+	"author": "Manfred Obumma <fredobumma@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fredobumma/postlater.git"
+	},
+	"homepage": "https://github.com/fredobumma/postlater#readme",
+	"bugs": "https://github.com/fredobumma/postlater/issues",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"bin": {
+		"postlater": "./dist/cli.js"
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/openapi.json dist/",
+		"prepack": "pnpm build",
+		"start": "node dist/cli.js",
+		"dev": "tsx src/cli.ts",
+		"typecheck": "tsc -p tsconfig.json",
+		"lint": "biome check .",
+		"format": "biome check --write .",
+		"test": "vitest run",
+		"check": "pnpm typecheck && pnpm lint && pnpm test"
+	},
+	"packageManager": "pnpm@10.5.2",
+	"dependencies": {
+		"@electric-sql/pglite": "0.5.13",
+		"@electric-sql/pglite-socket": "0.2.16",
+		"@hono/node-server": "2.1.5",
+		"croner": "11.0.0",
+		"hono": "4.13.14",
+		"jose": "6.2.14",
+		"postgres": "3.4.9"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.4",
+		"@types/node": "26.6.6",
+		"@upstash/qstash": "2.12.1",
+		"@upstash/workflow": "1.5.0",
+		"tsx": "4.23.15",
+		"typescript": "7.0.2",
+		"vitest": "5.0.5"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild"
+		]
+	}
+}
