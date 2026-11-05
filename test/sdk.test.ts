@@ -151,6 +151,17 @@ describe('publishing with @upstash/qstash', () => {
 		expect(dest.to('/refuses')).toHaveLength(1);
 	});
 
+	it('waits as long as Retry-After says, on any error', async () => {
+		dest.on('/wait', (_req, count) =>
+			count === 1 ? { status: 400, headers: { 'Retry-After': '1s' }, body: 'not yet' } : { status: 200 },
+		);
+		await h.client.publishJSON({ url: `${dest.url}/wait`, body: {}, retries: 1, retryDelay: '60000' });
+		const [first, second] = await waitFor(() => dest.to('/wait').length === 2 && dest.to('/wait'), 5000, 'the retry');
+		const gap = (second?.at ?? 0) - (first?.at ?? 0);
+		expect(gap).toBeGreaterThanOrEqual(950);
+		expect(gap).toBeLessThan(4000);
+	});
+
 	it('publishes DLQ messages again with dlq.retry, and deletes them', async () => {
 		let fixed = false;
 		dest.on('/later-fixed', () => (fixed ? { status: 200 } : { status: 500 }));

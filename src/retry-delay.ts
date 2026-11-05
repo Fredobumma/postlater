@@ -4,6 +4,9 @@
  * evaluated without `eval`.
  */
 
+import { parseDuration } from './duration.js';
+import type { HeaderMap } from './publish.js';
+
 type Node =
 	| { kind: 'number'; value: number }
 	| { kind: 'retried' }
@@ -124,4 +127,34 @@ export function retryDelayMs(expression: string | null | undefined, retried: num
 	const delay = evaluate(parseRetryDelay(expression), retried);
 	if (!Number.isFinite(delay) || delay < 0) return 0;
 	return Math.min(DAY_MS, Math.round(delay));
+}
+
+// the answer headers that say when to try again, as QStash reads them
+const RETRY_AFTER = ['upstash-retry-after', 'retry-after'];
+const RATE_LIMIT_RESET = ['x-ratelimit-reset', 'x-ratelimit-reset-requests', 'x-ratelimit-reset-tokens'];
+
+/**
+ * How long the destination asked to wait before the next attempt, in milliseconds, from `Retry-After` or a rate limit's
+ * reset headers on any failed answer: seconds (`10`), a duration (`6m5s`) or a date. When several reset headers are
+ * set, the longest wins, so the next attempt doesn't run into the other limit. Null when the answer doesn't say, or asks
+ * for more than a day, which leaves the attempt to the usual backoff.
+ */
+export function retryAfterMs(headers: HeaderMap, now = Date.now()): number | null {
+	const read = (name: string) => {
+		const value = headers[name]?.[0];
+		return value === undefined ? null : untilMs(value, now);
+	};
+	let wait = RETRY_AFTER.map(read).find((ms) => ms !== null) ?? null;
+	if (wait === null) {
+		const resets = RATE_LIMIT_RESET.map(read).filter((ms) => ms !== null);
+		wait = resets.length > 0 ? Math.max(...resets) : null;
+	}
+	return wait !== null && wait <= DAY_MS ? wait : null;
+}
+
+function untilMs(value: string, now: number): number | null {
+	const ms = parseDuration(value);
+	if (ms !== undefined) return ms;
+	const date = Date.parse(value);
+	return Number.isNaN(date) ? null : Math.max(0, date - now);
 }

@@ -54,21 +54,21 @@ Or choose them yourself, with `QSTASH_CURRENT_SIGNING_KEY` and `QSTASH_NEXT_SIGN
 
 Tested against the official SDKs, `@upstash/qstash` 2.12 and `@upstash/workflow` 1.5, which run as the clients in Postlater's test suite. Every delivery is checked with the SDK's own `Receiver.verify`.
 
-|                   |                                                                                                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Publishing        | `publish`, `publishJSON`, `batch`, `batchJSON`; to a URL or a URL group                                                                                      |
-| Delivery settings | method, delay, not-before, retries, retry delay expressions, timeout, forwarded headers, labels                                                              |
-| Retries           | QStash's default backoff or your own expression; `Retry-After` and `Upstash-Retry-After` are honoured; `489` with `Upstash-NonRetryable-Error` stops at once |
-| Callbacks         | callback after each attempt, failure callback after the last, both configurable with `Upstash-Callback-*` headers                                            |
-| Deduplication     | by id or by content                                                                                                                                          |
-| Queues            | in order, with parallelism; pause, resume, lag                                                                                                               |
-| Flow control      | parallelism and rate per key                                                                                                                                 |
-| Schedules         | cron with `CRON_TZ`, chosen ids, pause and resume                                                                                                            |
-| URL groups        | add and remove endpoints; fan-out publishing                                                                                                                 |
-| Dead-letter queue | list, filter, get, delete, publish again                                                                                                                     |
-| Messages and logs | get, cancel (one or in bulk), deliver now; logs with filters and paging                                                                                      |
-| Signing           | `Upstash-Signature` JWTs; key rotation                                                                                                                       |
-| Upstash Workflow  | `context.run`, `context.sleep`, parallel steps and `context.call`                                                                                            |
+|                   |                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Publishing        | `publish`, `publishJSON`, `batch`, `batchJSON`; to a URL or a URL group                                                                                                                          |
+| Delivery settings | method, delay, not-before, retries, retry delay expressions, timeout, forwarded headers, labels                                                                                                  |
+| Retries           | QStash's default backoff or your own expression; `Retry-After` and the `X-RateLimit-Reset` headers are honoured on any error, up to a day; `489` with `Upstash-NonRetryable-Error` stops at once |
+| Callbacks         | callback after each attempt, failure callback after the last, both configurable with `Upstash-Callback-*` headers                                                                                |
+| Deduplication     | by id or by content                                                                                                                                                                              |
+| Queues            | in order, with parallelism; pause, resume, lag                                                                                                                                                   |
+| Flow control      | parallelism and rate per key                                                                                                                                                                     |
+| Schedules         | cron with `CRON_TZ`, chosen ids, pause and resume                                                                                                                                                |
+| URL groups        | add and remove endpoints; fan-out publishing                                                                                                                                                     |
+| Dead-letter queue | list, filter, get, delete, publish again                                                                                                                                                         |
+| Messages and logs | get, cancel (one or in bulk), deliver now; logs with filters and paging                                                                                                                          |
+| Signing           | `Upstash-Signature` JWTs; key rotation                                                                                                                                                           |
+| Upstash Workflow  | `context.run`, `context.sleep`, parallel steps and `context.call`                                                                                                                                |
 
 ### Not yet
 

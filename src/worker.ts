@@ -4,7 +4,7 @@ import type { Sql } from './db.js';
 import { dlqId } from './ids.js';
 import { formatMessage, type MessageKind, type MessageRow, recordEvent } from './messages.js';
 import { type HeaderMap, parsePublishHeaders, toHeaderMap, unprefixCallbackHeaders } from './publish.js';
-import { retryDelayMs } from './retry-delay.js';
+import { retryAfterMs, retryDelayMs } from './retry-delay.js';
 import { nextCronRun, type ScheduleRow, type Service, workflowBody } from './service.js';
 import { signDelivery } from './signing.js';
 
@@ -274,7 +274,7 @@ export class Worker {
 				return;
 			}
 
-			const delay = retryAfterMs(response) ?? retryDelayMs(row.retry_delay, row.retried + 1);
+			const delay = (response && retryAfterMs(response.headers)) ?? retryDelayMs(row.retry_delay, row.retried + 1);
 			await tx`
 				UPDATE postlater_messages
 				SET state = 'RETRY', retried = retried + 1, next_delivery_at = ${now + delay}, lease_until = NULL
@@ -391,17 +391,4 @@ export class Worker {
 		// runs the SDK never ended, such as ones that failed for good, are forgotten with the rest of the history
 		await this.sql`DELETE FROM postlater_workflow_steps WHERE created_at < ${now - this.config.eventsRetentionMs}`;
 	}
-}
-
-/** `Upstash-Retry-After` or `Retry-After`, in seconds or as an HTTP date, from a 429 or 503 response. */
-function retryAfterMs(response: Response | null): number | null {
-	if (!response) return null;
-	const own = response.headers['upstash-retry-after']?.[0];
-	const standard =
-		response.status === 429 || response.status === 503 ? response.headers['retry-after']?.[0] : undefined;
-	const value = own ?? standard;
-	if (value === undefined) return null;
-	if (/^\d+$/.test(value)) return Number(value) * 1000;
-	const date = Date.parse(value);
-	return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
 }

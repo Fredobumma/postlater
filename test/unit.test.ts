@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from '../src/config.js';
 import { parseDuration } from '../src/duration.js';
 import { PublishError, parsePublishHeaders, toHeaderMap, unprefixCallbackHeaders } from '../src/publish.js';
-import { parseRetryDelay, RetryDelayError, retryDelayMs } from '../src/retry-delay.js';
+import { parseRetryDelay, RetryDelayError, retryAfterMs, retryDelayMs } from '../src/retry-delay.js';
 import { nextCronRun, parseCron } from '../src/service.js';
 
 const limits = { defaultRetries: 3, maxRetries: 20, defaultTimeoutMs: 300_000, maxTimeoutMs: 7_200_000 };
@@ -15,6 +15,9 @@ describe('durations', () => {
 		expect(parseDuration('1h30m')).toBe(5_400_000);
 		expect(parseDuration('2d')).toBe(172_800_000);
 		expect(parseDuration('250ms')).toBe(250);
+		expect(parseDuration('6m5s')).toBe(365_000);
+		expect(parseDuration('1.5h')).toBe(5_400_000);
+		expect(parseDuration('1500us')).toBe(2);
 		expect(parseDuration('30')).toBe(30_000);
 	});
 
@@ -50,6 +53,33 @@ describe('retry delay expressions', () => {
 		for (const expression of ['process.exit()', 'retried; 1', 'eval(1)', 'pow(2)', '1 +', '(1', 'x'.repeat(300)]) {
 			expect(() => parseRetryDelay(expression), expression).toThrow(RetryDelayError);
 		}
+	});
+});
+
+describe('retry-after', () => {
+	const now = Date.parse('2026-06-27T12:00:00Z');
+	const at = (headers: Record<string, string>) =>
+		retryAfterMs(Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, [v]])), now);
+
+	it('reads seconds, durations and dates', () => {
+		expect(at({ 'retry-after': '10' })).toBe(10_000);
+		expect(at({ 'retry-after': '0' })).toBe(0);
+		expect(at({ 'retry-after': '6m5s' })).toBe(365_000);
+		expect(at({ 'retry-after': 'Sat, 27 Jun 2026 12:16:24 GMT' })).toBe(984_000);
+		expect(at({ 'retry-after': 'Sat, 27 Jun 2026 11:00:00 GMT' })).toBe(0);
+	});
+
+	it("reads a rate limit's reset headers, taking the longest", () => {
+		expect(at({ 'x-ratelimit-reset': '30' })).toBe(30_000);
+		expect(at({ 'x-ratelimit-reset-requests': '1s', 'x-ratelimit-reset-tokens': '6m0s' })).toBe(360_000);
+		expect(at({ 'retry-after': '5', 'x-ratelimit-reset-tokens': '6m0s' })).toBe(5_000);
+	});
+
+	it('leaves the rest to the usual backoff', () => {
+		expect(at({})).toBeNull();
+		expect(at({ 'retry-after': 'soon' })).toBeNull();
+		expect(at({ 'retry-after': '2d' })).toBeNull();
+		expect(at({ 'x-ratelimit-reset': '1782561600' })).toBeNull();
 	});
 });
 
